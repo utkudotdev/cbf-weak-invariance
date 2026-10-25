@@ -7,6 +7,7 @@ import jax
 from controllers import make_random
 from environments import load_environment
 from simulation import simulate
+from utils import positive_float, positive_int
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -16,10 +17,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="particle",
         help="module name below environments/ (default: particle)",
     )
-    parser.add_argument("--steps", type=int, default=50)
-    parser.add_argument("--dt", type=float, default=0.05)
+    parser.add_argument("--steps", type=positive_int, default=50)
+    parser.add_argument("--dt", type=positive_float, default=0.05)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--agents", type=int, default=8)
+    parser.add_argument("--agents", type=positive_int, default=8)
     parser.add_argument(
         "--output", type=Path, help="optional path for the rendered plot"
     )

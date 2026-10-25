@@ -14,6 +14,8 @@ class Environment(Protocol):
 
     def node_feature(self, state: Any) -> Any: ...
 
+    def squared_distance(self, receiver: Any, sender: Any) -> Any: ...
+
     def f(self, state: Any, control: Any, parameters: Any, dt: float) -> Any:
         """Discrete time dynamics of the environment under `control`."""
         ...
@@ -54,6 +56,7 @@ def load_environment(name: str) -> Environment:
         "random_state",
         "edge_feature",
         "node_feature",
+        "squared_distance",
         "f",
         "h",
         "plot",

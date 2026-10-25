@@ -1,8 +1,15 @@
 """Translation-invariant state reduction for directed edges j -> i."""
 
+import jax
 import jax.numpy as jnp
+from jaxtyping import Float
 
 from .types import State
+
+
+def squared_distance(receiver: State, sender: State) -> Float[jax.Array, "*batch"]:
+    """Squared Euclidean position distance, broadcasting leading dimensions."""
+    return jnp.sum((sender.p - receiver.p) ** 2, axis=-1)
 
 
 def edge_feature(receiver: State, sender: State):

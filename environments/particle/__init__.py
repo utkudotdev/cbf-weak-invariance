@@ -4,7 +4,7 @@ from .types import Control, Parameters, State
 from .dynamics import f
 from .safety import h
 from .sampling import default_parameters, random_state
-from .features import edge_feature, node_feature
+from .features import edge_feature, node_feature, squared_distance
 from .vis import plot
 
 __all__ = [
@@ -17,5 +17,6 @@ __all__ = [
     "random_state",
     "edge_feature",
     "node_feature",
+    "squared_distance",
     "plot",
 ]
