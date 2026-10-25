@@ -8,7 +8,8 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
 
-from . import Parameters, State, default_parameters
+from .types import Parameters, State
+from .sampling import default_parameters
 
 
 def plot(
@@ -42,9 +43,7 @@ def plot(
 
     colors = [f"C{index % 10}" for index in range(agent_count)]
     trails = [ax.plot([], [], color=color, linewidth=1.5)[0] for color in colors]
-    centers = ax.scatter(
-        frames[0, :, 0], frames[0, :, 1], s=30, c=colors, zorder=3
-    )
+    centers = ax.scatter(frames[0, :, 0], frames[0, :, 1], s=30, c=colors, zorder=3)
     collision_disks = []
     for index, color in enumerate(colors):
         disk = Circle(

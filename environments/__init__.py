@@ -10,6 +10,10 @@ class Environment(Protocol):
 
     def random_state(self, key: Any) -> Any: ...
 
+    def edge_feature(self, receiver: Any, sender: Any) -> Any: ...
+
+    def node_feature(self, state: Any) -> Any: ...
+
     def f(self, state: Any, control: Any, parameters: Any, dt: float) -> Any:
         """Discrete time dynamics of the environment under `control`."""
         ...
@@ -48,6 +52,8 @@ def load_environment(name: str) -> Environment:
     required_hooks = (
         "default_parameters",
         "random_state",
+        "edge_feature",
+        "node_feature",
         "f",
         "h",
         "plot",
