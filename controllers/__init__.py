@@ -9,7 +9,7 @@ type Controller[SystemStateT, ControlT, ControllerStateT] = Callable[
 ]
 
 
-def random(
+def make_random(
     shape: tuple[int, ...],
 ) -> Controller[Any, jax.Array, jax.Array]:
     """Create a standard-normal random controller with a fixed output shape."""
@@ -22,4 +22,4 @@ def random(
     return controller
 
 
-__all__ = ["random"]
+__all__ = ["make_random"]

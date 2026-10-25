@@ -4,7 +4,7 @@ from typing import Sequence
 
 import jax
 
-from controllers import random
+from controllers import make_random
 from environments import load_environment
 from simulation import simulate
 
@@ -36,7 +36,7 @@ def main(argv: Sequence[str] | None = None):
     state_key, control_key = jax.random.split(key)
     state_keys = jax.random.split(state_key, args.agents)
     initial_states = jax.vmap(environment.random_state)(state_keys)
-    controller = random(initial_states.v.shape)
+    controller = make_random(initial_states.v.shape)
 
     parameters = environment.default_parameters()
     simulation = simulate(

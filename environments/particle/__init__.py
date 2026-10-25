@@ -28,12 +28,6 @@ def f(x: State, u: Control, params: Parameters, dt: float) -> State:
 
 
 def h(x: State, others: State, params: Parameters) -> jax.Array:
-    """Return the main agent's minimum collision margin against other agents.
-
-    ``x`` contains one agent and ``others`` has an additional penultimate
-    agent dimension, excluding the main agent. Any leading batch dimensions
-    are preserved. Nonnegative values are safe; no other agents gives infinity.
-    """
     separation = x.p[..., jnp.newaxis, :] - others.p
     squared_distance = jnp.sum(separation**2, axis=-1)
     minimum_separation = 2 * params.collision_radius
@@ -42,12 +36,10 @@ def h(x: State, others: State, params: Parameters) -> jax.Array:
 
 
 def default_parameters() -> Parameters:
-    """Return the parameters used by the example simulation."""
     return Parameters(mass=1.0, collision_radius=0.2)
 
 
 def random_state(key: jax.Array) -> State:
-    """Sample a stationary particle for the example runner."""
     position = jax.random.uniform(key, (2,), minval=-1.0, maxval=1.0)
     return State(p=position, v=jnp.zeros_like(position))
 

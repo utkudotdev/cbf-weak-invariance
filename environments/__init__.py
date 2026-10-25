@@ -10,12 +10,14 @@ class Environment(Protocol):
 
     def random_state(self, key: Any) -> Any: ...
 
-    def f(
-        self, state: Any, control: Any, parameters: Any, dt: float
-    ) -> Any: ...
+    def f(self, state: Any, control: Any, parameters: Any, dt: float) -> Any:
+        """Discrete time dynamics of the environment under `control`."""
+        ...
 
     def h(self, state: Any, other_states: Any, parameters: Any) -> Any:
-        """Return the main agent's safety margin against the other agents."""
+        """Return the main agent's safety margin against the other agents.
+
+        In GCBF+ terms, this function gives S_(N,i)."""
         ...
 
     def plot(

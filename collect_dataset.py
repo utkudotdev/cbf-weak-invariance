@@ -7,17 +7,11 @@ from typing import Any, Sequence
 
 import jax
 import jax.numpy as jnp
+from jax_tqdm import scan_tqdm
 
-from controllers import Controller, random
+from controllers import make_random
 from environments import Environment, load_environment
 from simulation import Simulation, simulate
-
-
-NUM_ROLLOUTS = 100_000
-NUM_ROLLOUTS_PER_BATCH = 4_096
-MAX_ROLLOUT_LENGTH = 64
-DT = 0.05
-NUM_AGENTS = 5
 
 
 @dataclass(frozen=True)
@@ -30,28 +24,9 @@ class Dataset:
     parameters: Any
 
 
-def make_controller(name: str, initial_state: Any) -> Controller[Any, Any, Any]:
-    """Construct a controller for the sampled system state.
-
-    Controller construction is intentionally explicit: controllers do not yet
-    share enough configuration to support a useful generic factory.
-    """
-    if name == "random":
-        try:
-            control_shape = initial_state.v.shape
-        except AttributeError as error:
-            raise TypeError(
-                "the random controller currently requires an environment state "
-                "with a 'v' array whose shape is also the control shape"
-            ) from error
-        return random(control_shape)
-    raise ValueError(f"unknown controller: {name!r}")
-
-
 def rollout(
     key: jax.Array,
     environment: Environment,
-    controller_name: str,
     parameters: Any,
     *,
     agents: int,
@@ -63,7 +38,7 @@ def rollout(
     state_keys = jax.random.split(state_key, agents)
     initial_state = jax.vmap(environment.random_state)(state_keys)
 
-    controller = make_controller(controller_name, initial_state)
+    controller = make_random(initial_state.v.shape)
     simulation = simulate(
         initial_state,
         environment.f,
@@ -90,16 +65,15 @@ def rollout(
 
 def collect_dataset(
     environment_name: str,
-    controller_name: str,
     *,
-    num_rollouts: int = NUM_ROLLOUTS,
-    rollouts_per_batch: int = NUM_ROLLOUTS_PER_BATCH,
-    rollout_length: int = MAX_ROLLOUT_LENGTH,
-    dt: float = DT,
-    agents: int = NUM_AGENTS,
-    seed: int = 0,
+    num_rollouts: int,
+    rollouts_per_batch: int,
+    rollout_length: int,
+    dt: float,
+    agents: int,
+    seed: int,
 ) -> Dataset:
-    """Collect trajectories for a named environment and controller."""
+    """Collect trajectories for a named environment using random controls."""
     environment = load_environment(environment_name)
     parameters = environment.default_parameters()
     rollout_keys = jax.random.split(jax.random.key(seed), num_rollouts)
@@ -108,7 +82,6 @@ def collect_dataset(
         simulation, hs = rollout(
             key,
             environment,
-            controller_name,
             parameters,
             agents=agents,
             steps=rollout_length,
@@ -116,12 +89,38 @@ def collect_dataset(
         )
         return simulation.states, simulation.controls, hs
 
-    states, controls, hs = jax.lax.map(
-        run,
-        rollout_keys,
-        batch_size=rollouts_per_batch,
+    batch_size = min(rollouts_per_batch, num_rollouts)
+    num_batches = (num_rollouts + batch_size - 1) // batch_size
+    # Repeat the final key to fill a partial batch, then discard padded outputs.
+    indices = jnp.minimum(jnp.arange(num_batches * batch_size), num_rollouts - 1)
+    key_batches = rollout_keys[indices].reshape(num_batches, batch_size)
+
+    @scan_tqdm(num_batches, print_rate=1, desc="Collecting trajectories", unit="batch")
+    def run_batch(carry: None, xs: tuple[jax.Array, jax.Array]):
+        _, keys = xs
+        return carry, jax.vmap(run)(keys)
+
+    _, batches = jax.lax.scan(
+        run_batch,
+        None,
+        (jnp.arange(num_batches), key_batches),
     )
+    states, controls, hs = jax.tree.map(
+        lambda leaf: leaf.reshape((num_batches * batch_size, *leaf.shape[2:]))[
+            :num_rollouts
+        ],
+        batches,
+    )
+    jax.block_until_ready((states, controls, hs))
+    jax.effects_barrier()
     return Dataset(states=states, controls=controls, hs=hs, parameters=parameters)
+
+
+def positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -133,19 +132,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="particle",
         help="module name below environments/ (default: particle)",
     )
-    parser.add_argument(
-        "--controller",
-        default="random",
-        choices=("random",),
-        help="controller to use (default: random)",
-    )
-    parser.add_argument("--num-rollouts", type=int, default=NUM_ROLLOUTS)
-    parser.add_argument(
-        "--rollouts-per-batch", type=int, default=NUM_ROLLOUTS_PER_BATCH
-    )
-    parser.add_argument("--rollout-length", type=int, default=MAX_ROLLOUT_LENGTH)
-    parser.add_argument("--dt", type=float, default=DT)
-    parser.add_argument("--agents", type=int, default=NUM_AGENTS)
+    parser.add_argument("--num-rollouts", type=positive_int, default=100_000)
+    parser.add_argument("--rollouts-per-batch", type=positive_int, default=4096)
+    parser.add_argument("--rollout-length", type=positive_int, default=64)
+    parser.add_argument("--dt", type=float, default=0.05)
+    parser.add_argument("--agents", type=positive_int, default=5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--output-dir",
@@ -159,7 +150,6 @@ def main(argv: Sequence[str] | None = None) -> Path:
     args = parse_args(argv)
     dataset = collect_dataset(
         args.environment,
-        args.controller,
         num_rollouts=args.num_rollouts,
         rollouts_per_batch=args.rollouts_per_batch,
         rollout_length=args.rollout_length,
@@ -183,18 +173,21 @@ def main(argv: Sequence[str] | None = None) -> Path:
     )
     metadata = {
         "environment": args.environment,
-        "controller": args.controller,
+        "controller": "random",
         "num_rollouts": args.num_rollouts,
         "rollouts_per_batch": args.rollouts_per_batch,
         "rollout_length": args.rollout_length,
         "dt": args.dt,
         "agents": args.agents,
         "seed": args.seed,
-        "safety_convention": "h >= 0 is safe; h < 0 is a safety violation",
-        "safety_axes": ["rollout", "timestep", "agent"],
     }
     with (output_dir / "metadata.json").open("w") as file:
         json.dump(metadata, file, indent=2)
+
+    print("Safety values across all trajectories, timesteps, and agents:")
+    print(f"  Min: {float(jnp.min(dataset.hs)):.6g}")
+    print(f"  Mean: {float(jnp.mean(dataset.hs)):.6g}")
+    print(f"  Max: {float(jnp.max(dataset.hs)):.6g}")
 
     return output_dir
 
