@@ -5,7 +5,7 @@ from .types import Parameters, State
 
 
 def h(x: State, others: State, params: Parameters) -> jax.Array:
-    separation = x.p[..., jnp.newaxis, :] - others.p
+    separation = x[..., jnp.newaxis, :2] - others[..., :2]
     squared_distance = jnp.sum(separation**2, axis=-1)
     minimum_separation = 2 * params.collision_radius
     pairwise_margin = squared_distance - minimum_separation**2

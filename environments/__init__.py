@@ -20,8 +20,12 @@ class Environment(Protocol):
         """Return componentwise lower and upper control limits."""
         ...
 
-    def f(self, state: Any, control: Any, parameters: Any, dt: float) -> Any:
-        """Discrete time dynamics of the environment under `control`."""
+    def f(self, state: Any, parameters: Any) -> Any:
+        """Single-agent continuous-time drift, shaped (state_dim,)."""
+        ...
+
+    def g(self, state: Any, parameters: Any) -> Any:
+        """Single-agent control matrix, shaped (state_dim, control_dim)."""
         ...
 
     def h(self, state: Any, other_states: Any, parameters: Any) -> Any:
@@ -40,6 +44,16 @@ class Environment(Protocol):
         show: bool,
         save_path: str | Path | None,
     ) -> Any: ...
+
+
+def dynamics(
+    environment: Environment, state: Any, control: Any, parameters: Any
+) -> Any:
+    """Evaluate the single-agent vector field f(x) + g(x) u."""
+    return (
+        environment.f(state, parameters)
+        + environment.g(state, parameters) @ control
+    )
 
 
 def load_environment(name: str) -> Environment:
@@ -62,6 +76,7 @@ def load_environment(name: str) -> Environment:
         "node_feature",
         "squared_distance",
         "f",
+        "g",
         "control_bounds",
         "h",
         "plot",
@@ -78,4 +93,4 @@ def load_environment(name: str) -> Environment:
     return cast(Environment, environment)
 
 
-__all__ = ["Environment", "load_environment"]
+__all__ = ["Environment", "dynamics", "load_environment"]

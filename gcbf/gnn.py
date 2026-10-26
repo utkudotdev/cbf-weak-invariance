@@ -30,8 +30,8 @@ def make_graph[StateT](
     neighbors = jnp.broadcast_to(jnp.arange(n - 1), (n, n - 1))
     senders = (neighbors + (neighbors >= jnp.arange(n)[:, None])).reshape(-1)
 
-    receiver_states = jax.tree.map(lambda x: x[receivers], state)
-    sender_states = jax.tree.map(lambda x: x[senders], state)
+    receiver_states = state[receivers]
+    sender_states = state[senders]
     edges = environment.edge_feature(receiver_states, sender_states)
     distance_squared = environment.squared_distance(receiver_states, sender_states)
     edge_mask = distance_squared < sensing_radius**2

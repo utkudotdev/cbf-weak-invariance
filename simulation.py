@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_dataclass
 
 from controllers import Controller
-from environments import Environment
+from environments import Environment, dynamics
 
 
 @register_dataclass
@@ -15,6 +15,12 @@ class Simulation[StateT, ControlT, ParametersT]:
     states: StateT
     controls: ControlT
     parameters: ParametersT
+
+
+def euler_step(environment: Environment, state, control, parameters, dt: float):
+    """Advance one agent's dynamics by one explicit Euler step."""
+    velocity = dynamics(environment, state, control, parameters)
+    return state + dt * velocity
 
 
 @partial(jax.jit, static_argnames=("environment", "controller", "steps"))
@@ -39,8 +45,10 @@ def simulate[StateT, ControlT, ParametersT, ControllerStateT](
     ]:
         state, controller_state = carry
         control, next_controller_state = controller(state, controller_state)
-        control = jax.tree.map(jnp.clip, control, lower, upper)
-        next_state = environment.f(state, control, parameters, dt)
+        control = jnp.clip(control, lower, upper)
+        next_state = jax.vmap(
+            lambda x, u: euler_step(environment, x, u, parameters, dt)
+        )(state, control)
         return (next_state, next_controller_state), (next_state, control)
 
     _, (following_states, controls) = jax.lax.scan(
@@ -49,14 +57,8 @@ def simulate[StateT, ControlT, ParametersT, ControllerStateT](
         xs=None,
         length=steps,
     )
-    states = jax.tree.map(
-        lambda initial, following: jnp.concatenate(
-            (initial[jnp.newaxis], following), axis=0
-        ),
-        initial_states,
-        following_states,
-    )
+    states = jnp.concatenate((initial_states[jnp.newaxis], following_states), axis=0)
     return Simulation(states, controls, parameters)
 
 
-__all__ = ["Simulation", "simulate"]
+__all__ = ["Simulation", "euler_step", "simulate"]

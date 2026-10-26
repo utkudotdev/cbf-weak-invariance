@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
 import jax
-import jax.numpy as jnp
 from jax.tree_util import register_dataclass
 from jaxtyping import Float
 
@@ -13,11 +12,6 @@ class Parameters:
     collision_radius: float
 
 
-@register_dataclass
-@dataclass
-class State:
-    p: Float[jax.Array, "*batch 2"]
-    v: Float[jax.Array, "*batch 2"]
-
-
+# Components: [position_x, position_y, velocity_x, velocity_y].
+type State = Float[jax.Array, "*batch 4"]
 type Control = Float[jax.Array, "*batch 2"]

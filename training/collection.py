@@ -30,7 +30,7 @@ def rollout(
 
     def controller(state, controller_state):
         result = qp_action(
-            model, environment, state, parameters, sensing_radius, dt, qp_config
+            model, environment, state, parameters, sensing_radius, qp_config
         )
         return result.control, controller_state
 
@@ -105,7 +105,7 @@ def collect_rollouts(
 
 def print_statistics(simulation):
     """Report componentwise velocity and speed across the particle rollouts."""
-    velocities = simulation.states.v
+    velocities = simulation.states[..., 2:]
     speeds = jnp.linalg.norm(velocities, axis=-1)
     axes = tuple(range(velocities.ndim - 1))
     stats = jax.device_get(

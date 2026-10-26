@@ -31,14 +31,14 @@ def safety_margins(environment, states, parameters):
     """Evaluate environment safety at training time, excluding each agent itself."""
 
     def graph_margins(state):
-        n = jax.tree.leaves(state)[0].shape[0]
+        n = state.shape[0]
 
         def one(i):
             indices = jnp.arange(n - 1)
             indices += indices >= i
             return environment.h(
-                jax.tree.map(lambda x: x[i], state),
-                jax.tree.map(lambda x: x[indices], state),
+                state[i],
+                state[indices],
                 parameters,
             )
 
@@ -55,7 +55,7 @@ def transitions(environment, simulation, horizon):
         return x.reshape((-1, *x.shape[2:]))
 
     return (
-        jax.tree.map(lambda x: flatten(x[:, :-1]), simulation.states),
+        flatten(simulation.states[:, :-1]),
         flatten(safe[:, :-1]),
         flatten(unsafe[:, :-1]),
     )

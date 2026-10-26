@@ -37,7 +37,8 @@ def main(argv: Sequence[str] | None = None):
     state_key, control_key = jax.random.split(key)
     state_keys = jax.random.split(state_key, args.agents)
     initial_states = jax.vmap(environment.random_state)(state_keys)
-    controller = make_random(initial_states.v.shape)
+    lower, _ = environment.control_bounds()
+    controller = make_random((args.agents, *lower.shape))
 
     parameters = environment.default_parameters()
     simulation = simulate(

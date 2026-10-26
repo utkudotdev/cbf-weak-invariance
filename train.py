@@ -27,6 +27,8 @@ def parse_args(argv=None):
     parser.add_argument("--margin", type=positive_float, default=0.02)
     parser.add_argument("--alpha", type=positive_float, default=1.0)
     parser.add_argument("--derivative-weight", type=nonnegative_float, default=0.2)
+    parser.add_argument("--safe-weight", type=nonnegative_float, default=1.0)
+    parser.add_argument("--unsafe-weight", type=nonnegative_float, default=1.0)
     parser.add_argument("--validation-fraction", type=fraction, default=0.2)
     parser.add_argument("--slack-linear", type=positive_float, default=1000.0)
     parser.add_argument("--slack-quadratic", type=positive_float, default=10.0)

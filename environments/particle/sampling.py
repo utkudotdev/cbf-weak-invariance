@@ -9,6 +9,6 @@ def default_parameters() -> Parameters:
 
 
 def random_state(key: jax.Array) -> State:
-    position = jax.random.uniform(key, (2,), minval=-0.6, maxval=0.6)
-    velocity = jax.random.uniform(key, (2,), minval=-1.0, maxval=1.0)
-    return State(p=position, v=velocity)
+    position = jax.random.uniform(key, (2,), minval=-3.0, maxval=3.0)
+    velocity = jax.random.uniform(key, (2,), minval=-5.0, maxval=5.0)
+    return jnp.concatenate((position, velocity))

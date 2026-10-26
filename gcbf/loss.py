@@ -1,5 +1,6 @@
 """GCBF+ Eq. (21), evaluated on controlled transitions."""
 
+from functools import partial
 from typing import NamedTuple
 
 import jax
@@ -10,6 +11,8 @@ class LossConfig(NamedTuple):
     margin: float
     alpha: float
     derivative_weight: float
+    safe_weight: float = 1.0
+    unsafe_weight: float = 1.0
 
 
 def masked_mean(values, mask):
@@ -29,7 +32,11 @@ def cbf_loss(h, h_next, safe, unsafe, dt, config: LossConfig):
     residual = (h_next - h) / dt + config.alpha * h
     derivative_loss = jnp.mean(jax.nn.relu(config.margin - residual))
 
-    total = safe_loss + unsafe_loss + config.derivative_weight * derivative_loss
+    total = (
+        config.safe_weight * safe_loss
+        + config.unsafe_weight * unsafe_loss
+        + config.derivative_weight * derivative_loss
+    )
 
     return total, dict(
         total=total,
@@ -40,20 +47,23 @@ def cbf_loss(h, h_next, safe, unsafe, dt, config: LossConfig):
     )
 
 
+@partial(jax.jit, static_argnames=("horizon",))
 def trajectory_labels(margins, horizon: int):
     """Label (rollout, time, agent) arrays using fully observed future windows.
 
     Safe iff t..t+horizon are collision-free. Unsafe iff colliding *now*.
     Future collisions and incomplete tails are unlabeled, not unsafe.
     """
-    if horizon < 1:
-        raise ValueError("horizon must be positive")
-
-    t = margins.shape[1]
-    safe = margins >= 0
-
     # Pad with false so incomplete windows are never labeled safe.
-    padded = jnp.pad(safe, ((0, 0), (0, horizon), (0, 0)))
-    for k in range(1, horizon + 1):
-        safe = safe & padded[:, k : k + t]
+    padded = jnp.pad(margins >= 0, ((0, 0), (0, horizon), (0, 0)))
+
+    safe = jax.lax.reduce_window(
+        padded,
+        True,
+        jax.lax.bitwise_and,
+        window_dimensions=(1, horizon + 1, 1),
+        window_strides=(1, 1, 1),
+        padding="VALID",
+    )
+
     return safe, margins < 0

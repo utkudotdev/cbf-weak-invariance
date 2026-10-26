@@ -25,9 +25,10 @@ def plot(
     """Plot agent positions and animate time-stacked trajectories."""
     del controls  # Part of the common environment plotting interface.
 
-    positions = np.asarray(x.p)
-    if positions.shape[-1:] != (2,):
-        raise ValueError("particle positions must have shape (..., 2)")
+    states = np.asarray(x)
+    if states.shape[-1:] != (4,):
+        raise ValueError("particle states must have shape (..., 4)")
+    positions = states[..., :2]
     parameters = parameters or default_parameters()
 
     if ax is None:

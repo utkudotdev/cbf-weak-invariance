@@ -61,8 +61,9 @@ def main(argv=None):
     @eqx.filter_jit
     def evaluate(velocity):
         def one(p):
-            state = environment.State(
-                jnp.stack((jnp.asarray(ego_position), p)), velocity.reshape(2, 2)
+            state = jnp.concatenate(
+                (jnp.stack((jnp.asarray(ego_position), p)), velocity.reshape(2, 2)),
+                axis=-1,
             )
             return model(
                 make_graph(
