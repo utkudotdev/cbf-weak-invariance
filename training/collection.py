@@ -2,35 +2,43 @@
 
 from typing import Any
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax_tqdm import scan_tqdm
 
-from controllers import make_random
 from environments import Environment
+from gcbf import GCBF
 from simulation import Simulation, simulate
+from training.qp import QPConfig, qp_action
 
 
 def rollout(
     key: jax.Array,
+    model: GCBF,
     environment: Environment,
     parameters: Any,
     *,
     agents: int,
     steps: int,
     dt: float,
+    sensing_radius: float,
+    qp_config: QPConfig,
 ) -> Simulation[Any, Any, Any]:
     """Sample an initial state and roll out one controlled trajectory."""
-    state_key, controller_key = jax.random.split(key)
-    state_keys = jax.random.split(state_key, agents)
+    state_keys = jax.random.split(key, agents)
     initial_state = jax.vmap(environment.random_state)(state_keys)
 
-    controller = make_random(initial_state.v.shape)
+    def controller(state, controller_state):
+        result = qp_action(
+            model, environment, state, parameters, sensing_radius, dt, qp_config
+        )
+        return result.control, controller_state
+
     simulation = simulate(
         initial_state,
         environment,
         controller,
-        controller_key,
+        None,
         parameters,
         steps=steps,
         dt=dt,
@@ -39,7 +47,9 @@ def rollout(
     return simulation
 
 
-def collect_dataset(
+@eqx.filter_jit
+def collect_rollouts(
+    model: GCBF,
     environment: Environment,
     parameters: Any,
     *,
@@ -47,22 +57,25 @@ def collect_dataset(
     rollouts_per_batch: int,
     rollout_length: int,
     dt: float,
+    sensing_radius: float,
+    qp_config: QPConfig,
     agents: int,
     key: jax.Array,
 ) -> Simulation[Any, Any, Any]:
-    """Collect a fresh in-memory batch using random controls."""
-    if min(num_rollouts, rollouts_per_batch, rollout_length, agents) < 1 or dt <= 0:
-        raise ValueError("counts and dt must be positive")
+    """Collect a fresh in-memory batch using the current QP controller."""
     rollout_keys = jax.random.split(key, num_rollouts)
 
     def run(key: jax.Array) -> tuple[Any, Any]:
         simulation = rollout(
             key,
+            model,
             environment,
             parameters,
             agents=agents,
             steps=rollout_length,
             dt=dt,
+            sensing_radius=sensing_radius,
+            qp_config=qp_config,
         )
         return simulation.states, simulation.controls
 
@@ -72,7 +85,6 @@ def collect_dataset(
     indices = jnp.minimum(jnp.arange(num_batches * batch_size), num_rollouts - 1)
     key_batches = rollout_keys[indices].reshape(num_batches, batch_size)
 
-    @scan_tqdm(num_batches, print_rate=1, desc="Collecting trajectories", unit="batch")
     def run_batch(carry: None, xs: tuple[jax.Array, jax.Array]):
         _, keys = xs
         return carry, jax.vmap(run)(keys)
@@ -88,6 +100,23 @@ def collect_dataset(
         ],
         batches,
     )
-    jax.block_until_ready((states, controls))
-    jax.effects_barrier()
     return Simulation(states=states, controls=controls, parameters=parameters)
+
+
+def print_statistics(simulation):
+    """Report componentwise velocity and speed across the particle rollouts."""
+    velocities = simulation.states.v
+    speeds = jnp.linalg.norm(velocities, axis=-1)
+    axes = tuple(range(velocities.ndim - 1))
+    stats = jax.device_get(
+        (
+            velocities.min(axis=axes),
+            velocities.mean(axis=axes),
+            velocities.max(axis=axes),
+            speeds.min(),
+            speeds.mean(),
+            speeds.max(),
+        )
+    )
+    print(f"Velocity components: min={stats[0]}, mean={stats[1]}, max={stats[2]}")
+    print(f"Speed ||v||: min={stats[3]:.6g}, mean={stats[4]:.6g}, max={stats[5]:.6g}")

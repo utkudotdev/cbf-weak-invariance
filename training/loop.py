@@ -10,10 +10,12 @@ import numpy as np
 import optax
 
 from environments import load_environment
-from gcbf import GCBF, LossConfig, cbf_loss, make_graph
+from gcbf import GCBF, LossConfig, make_graph
 from gcbf.checkpoint import save_checkpoint
-from training.batching import evaluate, transitions
-from training.collection import collect_dataset
+from training.batching import transitions
+from training.collection import collect_rollouts, print_statistics
+from training.optimization import make_steps
+from training.qp import QPConfig
 
 
 def train(args):
@@ -21,6 +23,15 @@ def train(args):
         raise ValueError("horizon must be <= rollout length")
     environment = load_environment(args.environment)
     parameters = environment.default_parameters()
+    lower, upper = environment.control_bounds()
+    if all(
+        np.all(np.asarray(lo) == np.asarray(hi))
+        for lo, hi in zip(jax.tree.leaves(lower), jax.tree.leaves(upper))
+    ):
+        print(
+            "Warning: all controls are fixed by environment.control_bounds(); "
+            "the QP has no control authority."
+        )
     rng = np.random.default_rng(args.seed)
     validation_count = (
         max(1, round(args.num_rollouts * args.validation_fraction))
@@ -29,14 +40,26 @@ def train(args):
     )
     validation_count = min(validation_count, args.num_rollouts - 1)
 
-    def collect_epoch(epoch):
-        simulation = collect_dataset(
+    qp_config = QPConfig(
+        args.alpha,
+        args.margin,
+        args.slack_linear,
+        args.slack_quadratic,
+        args.qp_tolerance,
+        args.qp_max_iterations,
+    )
+
+    def collect_epoch(model, epoch):
+        simulation = collect_rollouts(
+            model,
             environment,
             parameters,
             num_rollouts=args.num_rollouts,
             rollouts_per_batch=args.rollouts_per_batch,
             rollout_length=args.rollout_length,
             dt=args.dt,
+            sensing_radius=args.sensing_radius,
+            qp_config=qp_config,
             agents=args.agents,
             key=jax.random.fold_in(jax.random.key(args.seed + 1), epoch),
         )
@@ -53,29 +76,16 @@ def train(args):
 
         training = subset(validation_count, args.num_rollouts)
         validation = subset(0, validation_count) if validation_count else None
-        velocities = simulation.states.v
-        speeds = jnp.linalg.norm(velocities, axis=-1)
-        axes = tuple(range(velocities.ndim - 1))
-        stats = jax.device_get(
-            (
-                velocities.min(axis=axes),
-                velocities.mean(axis=axes),
-                velocities.max(axis=axes),
-                speeds.min(),
-                speeds.mean(),
-                speeds.max(),
-            )
-        )
-        print(f"Velocity components: min={stats[0]}, mean={stats[1]}, max={stats[2]}")
+        print_statistics(simulation)
         print(
-            f"Speed ||v||: min={stats[3]:.6g}, mean={stats[4]:.6g}, max={stats[5]:.6g}"
+            f"Labels: safe={float(training[1].mean()):.1%}, "
+            f"unsafe={float(training[2].mean()):.1%}"
         )
         return training, validation
 
-    collection_started = perf_counter()
-    training, validation = collect_epoch(0)
-    initial_collection_seconds = perf_counter() - collection_started
-    example = jax.tree.map(lambda x: x[0], training[0])
+    example = jax.vmap(environment.random_state)(
+        jax.random.split(jax.random.key(args.seed + 2), args.agents)
+    )
     graph = make_graph(
         environment,
         example,
@@ -95,32 +105,19 @@ def train(args):
     optimizer_state = optimizer.init(eqx.filter(model, eqx.is_inexact_array))
     loss_config = LossConfig(args.margin, args.alpha, args.derivative_weight)
 
-    @eqx.filter_jit
-    def objective(model, batch):
-        state, following, safe_mask, unsafe_mask = batch
-        h = evaluate(model, environment, state, args.sensing_radius)
-        h_next = evaluate(model, environment, following, args.sensing_radius)
-        return cbf_loss(h, h_next, safe_mask, unsafe_mask, args.dt, loss_config)
-
-    @eqx.filter_jit
-    def step(model, optimizer_state, data, indices, metric_totals):
-        # Fuse minibatch gathers with the update instead of dispatching a gather
-        # for every state/label leaf from Python.
-        batch = jax.tree.map(lambda x: x[indices], data)
-        (_, metrics), grads = eqx.filter_value_and_grad(objective, has_aux=True)(
-            model, batch
-        )
-        updates, optimizer_state = optimizer.update(grads, optimizer_state, model)
-        if metric_totals is not None:
-            metrics = jax.tree.map(
-                lambda total, value: total + value, metric_totals, metrics
-            )
-        return eqx.apply_updates(model, updates), optimizer_state, metrics
-
-    @eqx.filter_jit
-    def validation_step(model, data, indices, loss_total):
-        batch = jax.tree.map(lambda x: x[indices], data)
-        return loss_total + objective(model, batch)[0]
+    step, validation_step = make_steps(
+        environment,
+        parameters,
+        optimizer,
+        loss_config,
+        qp_config,
+        args.dt,
+        args.sensing_radius,
+    )
+    collection_started = perf_counter()
+    # Hold out the initial validation rollouts for comparable checkpoint scores.
+    training, validation = collect_epoch(model, 0)
+    initial_collection_seconds = perf_counter() - collection_started
 
     def batch_indices(count, shuffle=False):
         indices = rng.permutation(count) if shuffle else np.arange(count)
@@ -132,7 +129,6 @@ def train(args):
         jax.tree.leaves(validation)[0].shape[0] if validation is not None else 0
     )
     training_steps = (training_pairs + args.batch_size - 1) // args.batch_size
-    validation_steps = (validation_pairs + args.batch_size - 1) // args.batch_size
     print(
         f"Training on {jax.devices()[0]}: {training_pairs:,} state pairs/epoch, "
         f"{training_steps:,} updates/epoch, batch size {args.batch_size:,}; "
@@ -149,16 +145,21 @@ def train(args):
         "dt": args.dt,
         "loss": loss_config._asdict(),
         "horizon": args.horizon,
+        "qp": qp_config._asdict(),
         "seed": args.seed,
         "training": {
             "epochs": args.epochs,
+            "num_rollouts": args.num_rollouts,
+            "rollouts_per_batch": args.rollouts_per_batch,
+            "rollout_length": args.rollout_length,
+            "agents": args.agents,
             "batch_size": args.batch_size,
             "learning_rate": args.learning_rate,
             "pairs_per_epoch": training_pairs,
             "updates_per_epoch": training_steps,
             "validation_pairs": validation_pairs,
         },
-        "mode": "online_random_rollouts",
+        "mode": "online_qp_rollouts",
     }
     history = []
     best = float("inf")
@@ -166,7 +167,7 @@ def train(args):
     for epoch in range(args.epochs):
         collection_started = perf_counter()
         if epoch:
-            training, _ = collect_epoch(epoch)
+            training, _ = collect_epoch(model, epoch)
         collection_seconds = (
             perf_counter() - collection_started if epoch else initial_collection_seconds
         )
@@ -184,7 +185,7 @@ def train(args):
         row = dict(
             epoch=epoch + 1,
             collection_seconds=collection_seconds,
-            **{key: float(value) / training_steps for key, value in totals.items()},
+            **{key: float(value) / training_pairs for key, value in totals.items()},
             train_seconds=train_seconds,
             pairs_per_second=training_pairs / train_seconds,
         )
@@ -194,7 +195,7 @@ def train(args):
             loss_total = jnp.array(0.0)
             for indices in batch_indices(validation_pairs):
                 loss_total = validation_step(model, validation, indices, loss_total)
-            row["validation"] = float(loss_total) / validation_steps
+            row["validation"] = float(loss_total) / validation_pairs
             row["validation_seconds"] = perf_counter() - validation_started
 
         score = row.get("validation", row["total"])
@@ -206,6 +207,9 @@ def train(args):
         print(
             f"Epoch {epoch + 1}/{args.epochs}: loss={row['total']:.5f}"
             + (f" validation={row['validation']:.5f}" if validation is not None else "")
+            + f" derivative_ok={row['derivative_satisfied']:.1%}"
+            + f" qp_ok={row['qp_converged']:.1%} slack={row['qp_slack']:.4g}"
+            + f" collect={collection_seconds:.1f}s"
             + f" train={train_seconds:.1f}s ({row['pairs_per_second']:,.0f} pairs/s)"
         )
 

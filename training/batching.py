@@ -56,7 +56,6 @@ def transitions(environment, simulation, horizon):
 
     return (
         jax.tree.map(lambda x: flatten(x[:, :-1]), simulation.states),
-        jax.tree.map(lambda x: flatten(x[:, 1:]), simulation.states),
         flatten(safe[:, :-1]),
         flatten(unsafe[:, :-1]),
     )

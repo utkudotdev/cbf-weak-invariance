@@ -1,4 +1,4 @@
-"""GCBF+ Eq. (21), evaluated on recorded transitions (no learned policy)."""
+"""GCBF+ Eq. (21), evaluated on controlled transitions."""
 
 from typing import NamedTuple
 

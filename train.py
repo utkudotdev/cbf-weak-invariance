@@ -28,6 +28,10 @@ def parse_args(argv=None):
     parser.add_argument("--alpha", type=positive_float, default=1.0)
     parser.add_argument("--derivative-weight", type=nonnegative_float, default=0.2)
     parser.add_argument("--validation-fraction", type=fraction, default=0.2)
+    parser.add_argument("--slack-linear", type=positive_float, default=1000.0)
+    parser.add_argument("--slack-quadratic", type=positive_float, default=10.0)
+    parser.add_argument("--qp-tolerance", type=positive_float, default=1e-3)
+    parser.add_argument("--qp-max-iterations", type=positive_int, default=100)
     parser.add_argument("--seed", type=int, default=0)
 
     return parser.parse_args(argv)
