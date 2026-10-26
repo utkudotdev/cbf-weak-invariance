@@ -21,21 +21,20 @@ uv run python main.py --steps 200 --dt 0.05 --agents 5 --seed 7 \
 
 Use `uv run python main.py --help` for the full list of options.
 
-## Collect trajectories and train a GCBF
+## Train a GCBF
 
 ```sh
-uv run python collect_dataset.py --num-rollouts 512 --rollouts-per-batch 64 \
-  --rollout-length 64 --agents 5 --output-dir data/particles
-uv run python train.py data/particles --epochs 50 --horizon 16 \
-  --output-dir runs/particles
+uv run python train.py --num-rollouts 64 --rollout-length 64 --agents 5 \
+  --epochs 50 --horizon 16 --output-dir runs/particles
 ```
 
-Collection saves states `(rollouts, steps+1, agents, ...)`, controls
-`(rollouts, steps, agents, ...)`, parameters, and metadata.
+Training collects a fresh, small batch of trajectories each epoch in memory.
+Whole rollouts are split into training and validation before labeling/flattening.
+There is no separate collection command or dataset file. The `training/` package
+handles collection, batching, optimization, and checkpointing.
 
 `train.py` writes the best checkpoint (`model.eqx`, `config.json`) and per-epoch
-metrics (`history.json`). Width, depth, loss parameters, learning rate, batch size,
-and seed are configurable; run `--help` for options.
+metrics (`history.json`). Run `--help` for all options.
 
 ## Inspect a learned barrier
 
