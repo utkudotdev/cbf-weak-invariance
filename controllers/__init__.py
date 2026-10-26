@@ -11,12 +11,15 @@ type Controller[SystemStateT, ControlT, ControllerStateT] = Callable[
 
 def make_random(
     shape: tuple[int, ...],
+    std: float = 1.0,
 ) -> Controller[Any, jax.Array, jax.Array]:
-    """Create a standard-normal random controller with a fixed output shape."""
+    """Create a zero-mean Gaussian controller with a fixed output shape."""
+    if not std >= 0:
+        raise ValueError("standard deviation must be nonnegative")
 
     def controller(_, key: jax.Array) -> tuple[jax.Array, jax.Array]:
         key, control_key = jax.random.split(key)
-        control = jax.random.normal(control_key, shape)
+        control = std * jax.random.normal(control_key, shape)
         return control, key
 
     return controller

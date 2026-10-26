@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable
 
 import jax
 import jax.numpy as jnp
 from jax.tree_util import register_dataclass
 
 from controllers import Controller
+from environments import Environment
 
 
 @register_dataclass
@@ -17,10 +17,10 @@ class Simulation[StateT, ControlT, ParametersT]:
     parameters: ParametersT
 
 
-@partial(jax.jit, static_argnames=("dynamics", "controller", "steps"))
+@partial(jax.jit, static_argnames=("environment", "controller", "steps"))
 def simulate[StateT, ControlT, ParametersT, ControllerStateT](
     initial_states: StateT,
-    dynamics: Callable[[StateT, ControlT, ParametersT, float], StateT],
+    environment: Environment,
     controller: Controller[StateT, ControlT, ControllerStateT],
     initial_controller_state: ControllerStateT,
     parameters: ParametersT,
@@ -28,7 +28,8 @@ def simulate[StateT, ControlT, ParametersT, ControllerStateT](
     steps: int,
     dt: float,
 ) -> Simulation[StateT, ControlT, ParametersT]:
-    """Simulate a system under state feedback using a JIT-compiled scan."""
+    """Simulate bounded state feedback, recording the controls actually applied."""
+    lower, upper = environment.control_bounds()
 
     def step(
         carry: tuple[StateT, ControllerStateT], _: None
@@ -38,7 +39,8 @@ def simulate[StateT, ControlT, ParametersT, ControllerStateT](
     ]:
         state, controller_state = carry
         control, next_controller_state = controller(state, controller_state)
-        next_state = dynamics(state, control, parameters, dt)
+        control = jax.tree.map(jnp.clip, control, lower, upper)
+        next_state = environment.f(state, control, parameters, dt)
         return (next_state, next_controller_state), (next_state, control)
 
     _, (following_states, controls) = jax.lax.scan(

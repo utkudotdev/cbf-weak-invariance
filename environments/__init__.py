@@ -16,6 +16,10 @@ class Environment(Protocol):
 
     def squared_distance(self, receiver: Any, sender: Any) -> Any: ...
 
+    def control_bounds(self) -> tuple[Any, Any]:
+        """Return componentwise lower and upper control limits."""
+        ...
+
     def f(self, state: Any, control: Any, parameters: Any, dt: float) -> Any:
         """Discrete time dynamics of the environment under `control`."""
         ...
@@ -58,6 +62,7 @@ def load_environment(name: str) -> Environment:
         "node_feature",
         "squared_distance",
         "f",
+        "control_bounds",
         "h",
         "plot",
     )

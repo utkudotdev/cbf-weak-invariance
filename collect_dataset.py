@@ -40,7 +40,7 @@ def rollout(
     controller = make_random(initial_state.v.shape)
     simulation = simulate(
         initial_state,
-        environment.f,
+        environment,
         controller,
         controller_key,
         parameters,

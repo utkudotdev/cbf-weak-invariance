@@ -1,7 +1,7 @@
 """Particle environment; public hooks remain available at module level."""
 
 from .types import Control, Parameters, State
-from .dynamics import f
+from .dynamics import control_bounds, f
 from .safety import h
 from .sampling import default_parameters, random_state
 from .features import edge_feature, node_feature, squared_distance
@@ -12,6 +12,7 @@ __all__ = [
     "Parameters",
     "State",
     "f",
+    "control_bounds",
     "h",
     "default_parameters",
     "random_state",

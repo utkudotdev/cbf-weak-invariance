@@ -42,7 +42,7 @@ def main(argv: Sequence[str] | None = None):
     parameters = environment.default_parameters()
     simulation = simulate(
         initial_states,
-        environment.f,
+        environment,
         controller,
         control_key,
         parameters,
