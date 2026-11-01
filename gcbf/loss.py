@@ -39,10 +39,10 @@ def cbf_loss(h, h_next, safe, unsafe, dt, config: LossConfig):
     )
 
     return total, dict(
-        total=total,
-        safe=safe_loss,
-        unsafe=unsafe_loss,
-        derivative=derivative_loss,
+        loss=total,
+        safe_loss=safe_loss,
+        unsafe_loss=unsafe_loss,
+        derivative_loss=derivative_loss,
         derivative_satisfied=jnp.mean(residual >= 0),
     )
 

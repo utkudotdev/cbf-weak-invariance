@@ -14,8 +14,8 @@ import numpy as np
 
 from environments import load_environment
 from utils import int_at_least, positive_float
-from .checkpoint import load_checkpoint
-from .gnn import make_graph
+from gcbf.checkpoint import load_checkpoint
+from gcbf.gnn import make_graph
 
 
 def main(argv=None):

@@ -101,22 +101,3 @@ def collect_rollouts(
         batches,
     )
     return Simulation(states=states, controls=controls, parameters=parameters)
-
-
-def print_statistics(simulation):
-    """Report componentwise velocity and speed across the particle rollouts."""
-    velocities = simulation.states[..., 2:]
-    speeds = jnp.linalg.norm(velocities, axis=-1)
-    axes = tuple(range(velocities.ndim - 1))
-    stats = jax.device_get(
-        (
-            velocities.min(axis=axes),
-            velocities.mean(axis=axes),
-            velocities.max(axis=axes),
-            speeds.min(),
-            speeds.mean(),
-            speeds.max(),
-        )
-    )
-    print(f"Velocity components: min={stats[0]}, mean={stats[1]}, max={stats[2]}")
-    print(f"Speed ||v||: min={stats[3]:.6g}, mean={stats[4]:.6g}, max={stats[5]:.6g}")
