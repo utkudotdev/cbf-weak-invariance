@@ -20,14 +20,20 @@ from training.collection import collect_rollouts
 from training.optimization import make_steps
 from training.qp import QPConfig
 from training.replay import ReplaySampler
-from utils import fraction, nonnegative_float, positive_float, positive_int
+from training.validation import safety_metrics, sample_safety_scenarios
+from utils import nonnegative_float, positive_float, positive_int
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument("--environment", default="double_integrator")
-    parser.add_argument("--num-rollouts", type=positive_int, default=64)
+    parser.add_argument(
+        "--num-rollouts",
+        type=positive_int,
+        default=64,
+        help="fresh training trajectories per epoch, excluding validation",
+    )
     parser.add_argument("--rollouts-per-batch", type=positive_int, default=64)
     parser.add_argument("--rollout-length", type=positive_int, default=64)
     parser.add_argument("--dt", type=positive_float, default=0.05)
@@ -51,7 +57,18 @@ def parse_args(argv=None):
     parser.add_argument("--derivative-weight", type=nonnegative_float, default=0.2)
     parser.add_argument("--safe-weight", type=nonnegative_float, default=1.0)
     parser.add_argument("--unsafe-weight", type=nonnegative_float, default=1.0)
-    parser.add_argument("--validation-fraction", type=fraction, default=0.2)
+    parser.add_argument(
+        "--loss-validation-trajectories",
+        type=positive_int,
+        default=16,
+        help="trajectories collected once for fixed validation-loss samples",
+    )
+    parser.add_argument(
+        "--safety-validation-trajectories",
+        type=positive_int,
+        default=64,
+        help="fixed scenarios rolled out under the current controller each epoch",
+    )
     parser.add_argument("--slack-linear", type=positive_float, default=1000.0)
     parser.add_argument("--slack-quadratic", type=positive_float, default=10.0)
     parser.add_argument("--qp-tolerance", type=positive_float, default=1e-3)
@@ -65,14 +82,8 @@ def train(args):
     if args.horizon > args.rollout_length:
         raise ValueError("horizon must be <= rollout length")
 
-    validation_count = round(args.num_rollouts * args.validation_fraction)
-    training_count = args.num_rollouts - validation_count
-
-    if validation_count < 1 or training_count < 1:
-        raise ValueError(
-            "num_rollouts and validation_fraction must yield at least one "
-            "training rollout and one validation rollout"
-        )
+    validation_count = args.loss_validation_trajectories
+    training_count = args.num_rollouts
 
     environment = load_environment(args.environment)
     parameters = environment.default_parameters()
@@ -81,6 +92,14 @@ def train(args):
     replay = ReplaySampler(args.buffer_size)
 
     training_key, validation_key = jax.random.split(jax.random.key(args.seed + 1))
+    safety_key = jax.random.key(args.seed + 4)
+    safety_initial_states, safety_nominal_controls = sample_safety_scenarios(
+        environment,
+        args.safety_validation_trajectories,
+        args.agents,
+        args.rollout_length,
+        safety_key,
+    )
 
     qp_config = QPConfig(
         args.alpha,
@@ -167,7 +186,8 @@ def train(args):
         f"Training on {jax.devices()[0]}: {fresh_pairs:,} fresh state pairs/epoch, "
         f"up to {maximum_training_pairs:,} with replay, "
         f"batch size {args.batch_size:,}; "
-        f"{validation_pairs:,} validation pairs"
+        f"{validation_pairs:,} loss validation pairs; "
+        f"{args.safety_validation_trajectories:,} safety validation trajectories"
     )
 
     config = {
@@ -186,7 +206,8 @@ def train(args):
             "epochs": args.epochs,
             "num_rollouts": args.num_rollouts,
             "training_rollouts": training_count,
-            "validation_rollouts": validation_count,
+            "loss_validation_trajectories": validation_count,
+            "safety_validation_trajectories": args.safety_validation_trajectories,
             "rollouts_per_batch": args.rollouts_per_batch,
             "rollout_length": args.rollout_length,
             "agents": args.agents,
@@ -224,6 +245,7 @@ def train(args):
         status_line(1) as loss_status,
         status_line(2) as data_status,
         status_line(3) as timing_status,
+        status_line(4) as safety_status,
     ):
         # Hold out the initial validation rollouts for comparable checkpoint scores.
         validation = collect_dataset(model, validation_count, validation_key)
@@ -279,6 +301,26 @@ def train(args):
             row["validation_loss"] = float(loss_total) / validation_pairs
             row["validation_seconds"] = perf_counter() - validation_started
 
+            safety_started = perf_counter()
+            safety_simulation = collect_rollouts(
+                model,
+                environment,
+                parameters,
+                num_rollouts=args.safety_validation_trajectories,
+                rollouts_per_batch=args.rollouts_per_batch,
+                rollout_length=args.rollout_length,
+                dt=args.dt,
+                sensing_radius=args.sensing_radius,
+                qp_config=qp_config,
+                agents=args.agents,
+                key=safety_key,
+                initial_states=safety_initial_states,
+                nominal_controls=safety_nominal_controls,
+            )
+            rollout_metrics = safety_metrics(environment, safety_simulation, args.dt)
+            row.update({key: float(value) for key, value in rollout_metrics.items()})
+            row["safety_validation_seconds"] = perf_counter() - safety_started
+
             history.append(row)
             loss_status.set_description_str(
                 f"loss={row['loss']:.5f} val={row['validation_loss']:.5f}"
@@ -295,6 +337,13 @@ def train(args):
             timing_status.set_description_str(
                 f"collect={collection_seconds:.1f}s train={train_seconds:.1f}s"
                 f" ({row['pairs_per_second']:,.0f} pairs/s)"
+            )
+            safety_status.set_description_str(
+                f"safety violation mean={row['safety_violation_mean']:.3g}"
+                f" worst={row['safety_violation_worst']:.3g}"
+                f" violation_time={row['safety_violation_time_total']:.2f}s"
+                f" unsafe={row['safety_unsafe_fraction']:.1%}"
+                f" trajectories={row['safety_unsafe_trajectory_fraction']:.1%}"
             )
             progress.update(1)
 

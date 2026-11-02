@@ -3,6 +3,7 @@
 from functools import partial
 from typing import NamedTuple
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
@@ -55,7 +56,10 @@ def objective(model, batch, environment, parameters, loss_config, qp_config, dt,
     from training.qp import qp_action
 
     states, safe, unsafe = batch
-    control_model = jax.tree.map(jax.lax.stop_gradient, model)
+    control_model = jax.tree.map(
+        lambda leaf: jax.lax.stop_gradient(leaf) if eqx.is_array(leaf) else leaf,
+        model,
+    )
     results = jax.vmap(
         lambda state: qp_action(
             control_model, environment, state, parameters, radius, qp_config

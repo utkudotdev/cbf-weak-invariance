@@ -62,8 +62,9 @@ def make_qp(
     parameters: Any,
     sensing_radius: float,
     config: QPConfig,
+    nominal_control=None,
 ):
-    """Build min .5||u||² + .5*w₂||r||² + w₁ sum(r), r >= 0.
+    """Build min .5||u-u_nom||² + .5*w₂||r||² + w₁ sum(r), r >= 0.
 
     Constraints: Lf h + Lg h u + alpha*h + r >= margin, plus hard control bounds.
     Lie derivatives use the continuous-time control-affine vector field f + g u.
@@ -74,7 +75,11 @@ def make_qp(
     control_shape = lower.shape
 
     lower, upper = lower.ravel(), upper.ravel()
-    zero = jnp.zeros_like(lower)
+    nominal = (
+        jnp.zeros_like(lower)
+        if nominal_control is None
+        else jnp.asarray(nominal_control).ravel()
+    )
 
     def barrier(x):
         return model(make_graph(environment, x, sensing_radius))[:-1]
@@ -97,7 +102,7 @@ def make_qp(
             (jnp.ones(num_controls), jnp.full(agents, config.slack_quadratic))
         )
     )
-    linear = jnp.concatenate((zero, jnp.full(agents, config.slack_linear)))
+    linear = jnp.concatenate((-nominal, jnp.full(agents, config.slack_linear)))
 
     constraint = -jnp.concatenate((lie_g_h, jnp.eye(agents)), axis=1)
 
@@ -173,9 +178,10 @@ def qp_action(
     parameters: Any,
     sensing_radius: float,
     config: QPConfig,
+    nominal_control=None,
 ) -> QPResult:
     data, recover_control = make_qp(
-        model, environment, state, parameters, sensing_radius, config
+        model, environment, state, parameters, sensing_radius, config, nominal_control
     )
     solution = solve_qp(data, config)
 

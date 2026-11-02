@@ -23,22 +23,32 @@ def rollout(
     dt: float,
     sensing_radius: float,
     qp_config: QPConfig,
+    initial_state=None,
+    nominal_controls=None,
 ) -> Simulation[Any, Any, Any]:
-    """Sample an initial state and roll out one controlled trajectory."""
-    state_keys = jax.random.split(key, agents)
-    initial_state = jax.vmap(environment.random_state)(state_keys)
+    """Roll out a sampled or supplied state with optional nominal controls."""
+    if initial_state is None:
+        state_keys = jax.random.split(key, agents)
+        initial_state = jax.vmap(environment.random_state)(state_keys)
 
-    def controller(state, controller_state):
+    def controller(state, index):
+        nominal = None if nominal_controls is None else nominal_controls[index]
         result = qp_action(
-            model, environment, state, parameters, sensing_radius, qp_config
+            model,
+            environment,
+            state,
+            parameters,
+            sensing_radius,
+            qp_config,
+            nominal_control=nominal,
         )
-        return result.control, controller_state
+        return result.control, index + 1
 
     simulation = simulate(
         initial_state,
         environment,
         controller,
-        None,
+        jnp.array(0),
         parameters,
         steps=steps,
         dt=dt,
@@ -61,13 +71,15 @@ def collect_rollouts(
     qp_config: QPConfig,
     agents: int,
     key: jax.Array,
+    initial_states=None,
+    nominal_controls=None,
 ) -> Simulation[Any, Any, Any]:
-    """Collect a fresh in-memory batch using the current QP controller."""
+    """Collect current-policy rollouts, optionally using fixed scenario inputs."""
     rollout_keys = jax.random.split(key, num_rollouts)
 
-    def run(key: jax.Array) -> tuple[Any, Any]:
+    def run(index: jax.Array) -> tuple[Any, Any]:
         simulation = rollout(
-            key,
+            rollout_keys[index],
             model,
             environment,
             parameters,
@@ -76,23 +88,26 @@ def collect_rollouts(
             dt=dt,
             sensing_radius=sensing_radius,
             qp_config=qp_config,
+            initial_state=None if initial_states is None else initial_states[index],
+            nominal_controls=(
+                None if nominal_controls is None else nominal_controls[index]
+            ),
         )
         return simulation.states, simulation.controls
 
     batch_size = min(rollouts_per_batch, num_rollouts)
     num_batches = (num_rollouts + batch_size - 1) // batch_size
-    # Repeat the final key to fill a partial batch, then discard padded outputs.
+    # Repeat the final scenario to fill a partial batch, then discard padding.
     indices = jnp.minimum(jnp.arange(num_batches * batch_size), num_rollouts - 1)
-    key_batches = rollout_keys[indices].reshape(num_batches, batch_size)
+    index_batches = indices.reshape(num_batches, batch_size)
 
-    def run_batch(carry: None, xs: tuple[jax.Array, jax.Array]):
-        _, keys = xs
-        return carry, jax.vmap(run)(keys)
+    def run_batch(carry, batch_indices):
+        return carry, jax.vmap(run)(batch_indices)
 
     _, batches = jax.lax.scan(
         run_batch,
         None,
-        (jnp.arange(num_batches), key_batches),
+        index_batches,
     )
     states, controls = jax.tree.map(
         lambda leaf: leaf.reshape((num_batches * batch_size, *leaf.shape[2:]))[
