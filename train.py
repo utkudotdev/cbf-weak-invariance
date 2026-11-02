@@ -26,7 +26,7 @@ from utils import fraction, nonnegative_float, positive_float, positive_int
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
 
-    parser.add_argument("--environment", default="particle")
+    parser.add_argument("--environment", default="double_integrator")
     parser.add_argument("--num-rollouts", type=positive_int, default=64)
     parser.add_argument("--rollouts-per-batch", type=positive_int, default=64)
     parser.add_argument("--rollout-length", type=positive_int, default=64)

@@ -17,5 +17,9 @@ def save_checkpoint(directory, model, config):
 def load_checkpoint(directory):
     directory = Path(directory)
     config = json.loads((directory / "config.json").read_text())
+    # Checkpoints saved before the environment rename use the old name.
+    if config["environment"] == "particle":
+        config["environment"] = "double_integrator"
+
     model = GCBF(**config["model"], key=jax.random.key(0))
     return eqx.tree_deserialise_leaves(directory / "model.eqx", model), config

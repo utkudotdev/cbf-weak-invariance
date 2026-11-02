@@ -1,4 +1,4 @@
-"""Two-agent slices of a learned particle GCBF with interactive velocity sliders."""
+"""Two-agent slices of a learned double_integrator GCBF with interactive velocity sliders."""
 
 import argparse
 from functools import partial
@@ -39,9 +39,9 @@ def main(argv=None):
     parser.add_argument("--no-show", action="store_true")
     args = parser.parse_args(argv)
     model, config = load_checkpoint(args.checkpoint)
-    if config["environment"] != "particle":
+    if config["environment"] != "double_integrator":
         raise ValueError(
-            "the two-agent position viewer currently supports particle only"
+            "the two-agent position viewer currently supports double_integrator only"
         )
 
     environment = load_environment(config["environment"])

@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Sequence
 
 import jax
+import matplotlib.pyplot as plt
+from matplotlib.animation import PillowWriter
 
 from controllers import make_random
 from environments import load_environment
@@ -14,8 +16,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Simulate a configurable environment.")
     parser.add_argument(
         "--environment",
-        default="particle",
-        help="module name below environments/ (default: particle)",
+        default="double_integrator",
+        help="module name below environments/ (default: double_integrator)",
     )
     parser.add_argument("--steps", type=positive_int, default=50)
     parser.add_argument("--dt", type=positive_float, default=0.05)
@@ -50,14 +52,23 @@ def main(argv: Sequence[str] | None = None):
         steps=args.steps,
         dt=args.dt,
     )
-    environment.plot(
+    figure, _, animation = environment.plot(
         simulation.states,
         controls=simulation.controls,
         parameters=simulation.parameters,
         dt=args.dt,
-        show=not args.no_show,
-        save_path=args.output,
     )
+
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        if args.output.suffix.lower() == ".gif" and animation is not None:
+            fps = max(1, round(1 / args.dt))
+            animation.save(args.output, writer=PillowWriter(fps=fps), dpi=100)
+        else:
+            figure.savefig(args.output, dpi=160)
+
+    if not args.no_show:
+        plt.show()
 
 
 if __name__ == "__main__":

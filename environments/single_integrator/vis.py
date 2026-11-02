@@ -1,9 +1,8 @@
-from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
@@ -19,9 +18,7 @@ def plot(
     parameters: Parameters | None = None,
     dt: float | None = None,
     ax: Axes | None = None,
-    show: bool = True,
-    save_path: str | Path | None = None,
-) -> tuple[Figure, Axes]:
+) -> tuple[Figure, Axes, FuncAnimation | None]:
     """Plot agent positions and animate time-stacked trajectories."""
     del controls  # Part of the common environment plotting interface.
 
@@ -97,19 +94,6 @@ def plot(
             interval=interval,
             blit=True,
         )
-        # Keep the animation alive for interactive callers after this returns.
-        figure._single_integrator_animation = animation  # type: ignore[attr-defined]
+    update(len(frames) - 1)
 
-    if save_path is not None:
-        output = Path(save_path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        if output.suffix.lower() == ".gif" and animation is not None:
-            fps = max(1, round(1 / (dt if dt is not None else 0.05)))
-            animation.save(output, writer=PillowWriter(fps=fps), dpi=100)
-        else:
-            update(len(frames) - 1)
-            figure.savefig(output, dpi=160)
-    if show:
-        plt.show()
-
-    return figure, ax
+    return figure, ax, animation

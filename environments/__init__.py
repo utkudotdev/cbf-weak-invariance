@@ -1,5 +1,4 @@
 import importlib
-from pathlib import Path
 from typing import Any, Protocol, cast
 
 
@@ -41,8 +40,6 @@ class Environment(Protocol):
         controls: Any,
         parameters: Any,
         dt: float,
-        show: bool,
-        save_path: str | Path | None,
     ) -> Any: ...
 
 

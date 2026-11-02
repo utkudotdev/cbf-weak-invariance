@@ -1,4 +1,4 @@
-"""Particle environment; public hooks remain available at module level."""
+"""Double integrator environment; public hooks remain available at module level."""
 
 from .types import Control, Parameters, State
 from .dynamics import control_bounds, f, g

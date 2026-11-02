@@ -18,5 +18,5 @@ def edge_feature(receiver: State, sender: State):
 
 
 def node_feature(state: State):
-    """Agent type encoding, shared with the particle environment."""
+    """Agent type encoding, shared with the double_integrator environment."""
     return jnp.broadcast_to(jnp.array([1.0, 0.0, 0.0]), (*state.shape[:-1], 3))

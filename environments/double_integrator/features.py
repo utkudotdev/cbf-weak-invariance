@@ -15,7 +15,7 @@ def squared_distance(receiver: State, sender: State) -> Float[jax.Array, "*batch
 def edge_feature(receiver: State, sender: State):
     """Return [p_j - p_i, v_i, v_j], broadcasting leading dimensions.
 
-    Here v_i and v_j denote absolute particle velocities, not the node-type
+    Here v_i and v_j denote absolute double_integrator velocities, not the node-type
     features denoted by v_i and v_j in GCBF+ Section IV-A. Those node features
     are provided separately by node_feature().
     """

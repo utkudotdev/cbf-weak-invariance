@@ -47,6 +47,40 @@ def cbf_loss(h, h_next, safe, unsafe, dt, config: LossConfig):
     )
 
 
+def objective(model, batch, environment, parameters, loss_config, qp_config, dt, radius):
+    """Evaluate the barrier loss and QP metrics on controlled transitions."""
+    # Training helpers import the public gcbf API, so load them at call time.
+    from simulation import euler_step
+    from training.batching import evaluate
+    from training.qp import qp_action
+
+    states, safe, unsafe = batch
+    control_model = jax.tree.map(jax.lax.stop_gradient, model)
+    results = jax.vmap(
+        lambda state: qp_action(
+            control_model, environment, state, parameters, radius, qp_config
+        )
+    )(states)
+
+    # Choose controls with a frozen certificate; retain gradients through both
+    # barrier evaluations without differentiating through the QP solver.
+    controls = jax.lax.stop_gradient(results.control)
+    following = jax.vmap(
+        jax.vmap(lambda x, u: euler_step(environment, x, u, parameters, dt))
+    )(states, controls)
+
+    h = evaluate(model, environment, states, radius)
+    h_next = evaluate(model, environment, following, radius)
+    loss, metrics = cbf_loss(h, h_next, safe, unsafe, dt, loss_config)
+    metrics.update(
+        qp_converged=results.converged.mean(),
+        qp_slack=results.slack.mean(),
+        qp_violation=results.violation.mean(),
+    )
+
+    return loss, metrics
+
+
 @partial(jax.jit, static_argnames=("horizon",))
 def trajectory_labels(margins, horizon: int):
     """Label (rollout, time, agent) arrays using fully observed future windows.
